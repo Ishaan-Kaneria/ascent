@@ -1,0 +1,20 @@
+# Rebuilds the Netlify dashboard daily so it picks up new submissions.
+# Setup: Netlify -> Site configuration -> Build & deploy -> Build hooks -> Add build hook,
+# then save its URL as the repository secret NETLIFY_BUILD_HOOK
+# (GitHub: Settings -> Secrets and variables -> Actions -> New repository secret).
+name: netlify-refresh
+on:
+  schedule:
+    - cron: "41 1 * * *"   # 01:41 UTC daily
+  workflow_dispatch:
+permissions: {}
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Netlify build hook
+        env:
+          HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "NETLIFY_BUILD_HOOK not set; skipping."; exit 0; fi
+          curl -fsS -X POST -d '{}' "$HOOK"

@@ -230,6 +230,24 @@ State lives in `~/.ascent/` (set `ASCENT_HOME` to change it):
 
 `ascent sync --rebuild` recreates the database from the APIs plus the journal.
 
+## Hosted dashboard on Netlify
+
+`netlify.toml` and `netlify/build.sh` make Netlify build the dashboard on its
+own servers from your live Codeforces/LeetCode data:
+
+1. On Netlify: **Add new site → Import an existing project → GitHub** →
+   pick this repo. The build settings are read from `netlify.toml`; just
+   click **Deploy**.
+2. Set your handles in `netlify.toml` (`CF_HANDLE`, `LC_HANDLE`), or in
+   Netlify under **Site configuration → Environment variables**.
+3. For a daily refresh: in Netlify, go to **Build & deploy → Build hooks**
+   and add a hook. Save its URL as the GitHub repository secret
+   `NETLIFY_BUILD_HOOK`, and `.github/workflows/netlify-refresh.yml` will
+   trigger it every day.
+
+If the Codeforces API is down during a build, the build fails on purpose and
+Netlify keeps serving the last good dashboard.
+
 ## Automatic daily dashboard (GitHub Actions + Pages)
 
 1. Fork or clone this repo.

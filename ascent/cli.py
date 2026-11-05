@@ -54,7 +54,7 @@ def cmd_sync(a):
         n = db.replay_journal(conn)
         conn.commit()
         print(f"Rebuilt database; replayed {n} journal events.")
-    ok = True
+    ok = cf_ok = True
     for name, fn in (("Codeforces", sync.sync_cf), ("LeetCode", sync.sync_lc)):
         if (a.only and a.only != name.lower()[:2]):
             continue
@@ -62,12 +62,15 @@ def cmd_sync(a):
             fn(conn, cfg, refresh=a.refresh)
         except (FetchError, RuntimeError, KeyError) as e:
             ok = False
+            cf_ok = cf_ok and name != "Codeforces"
             print(f"! {name} sync failed: {e}", file=sys.stderr)
     st = load(conn, cfg)
     added = sync.update_reviews(conn, st.cf_outcomes, st.level())
     if added:
         print(f"Queued {added} problems for spaced-repetition review.")
     print("Done." if ok else "Done, with errors above (data from the failed sources was not updated).")
+    if not cf_ok and a.strict:
+        sys.exit(1)
 
 
 def cmd_stats(a):
@@ -379,6 +382,7 @@ def main(argv=None):
     s.add_argument("--refresh", action="store_true", help="force re-download of problem catalogs")
     s.add_argument("--rebuild", action="store_true", help="drop the DB and rebuild from APIs + journal")
     s.add_argument("--only", choices=["co", "le"], help="co = Codeforces only, le = LeetCode only")
+    s.add_argument("--strict", action="store_true", help="exit with an error if the Codeforces sync failed (for CI/hosting)")
     s.set_defaults(f=cmd_sync)
 
     sub.add_parser("stats", help="activity summary").set_defaults(f=cmd_stats)

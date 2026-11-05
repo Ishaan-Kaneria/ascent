@@ -7,3 +7,4 @@ dist/
 .venv/
 data/ascent.db
 site/
+.ascent-build/

@@ -1,0 +1,20 @@
+# Netlify builds the dashboard on its own servers (which can reach the
+# Codeforces / LeetCode APIs) and publishes it. Connect this repo in Netlify:
+# Add new site -> Import an existing project -> GitHub -> this repo. No other settings needed.
+[build]
+  command = "bash netlify/build.sh"
+  publish = "site"
+
+[build.environment]
+  PYTHON_VERSION = "3.12"
+  # Your handles (public profile names). Can also be set in Netlify's UI:
+  # Site configuration -> Environment variables.
+  CF_HANDLE = "Ishaan-K"
+  LC_HANDLE = "Ishaan-Kaneria"
+  TARGET_RATING = "1600"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
