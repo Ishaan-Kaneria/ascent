@@ -280,6 +280,37 @@ function parseFilters(q) {
   return f;
 }
 
+function textMatches(q, plat) {
+  // Plain reading: every word must appear in the ID / name / slug.
+  const toks = q.split(/\s+/), out = [];
+  for (const p of problems) {
+    if (plat && p.plat !== plat) continue;
+    if (!toks.every(t => p.key.includes(t))) continue;
+    const nm = p.name.toLowerCase();
+    let s = (p.cid || p.num || 0) / 1e5;
+    if (nm === q || p.id.toLowerCase() === q || String(p.num) === q) s += 100;
+    if (nm.startsWith(q)) s += 30;
+    if (toks.every(t => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(nm))) s += 10;
+    out.push([s, p]);
+  }
+  return out.sort((a, b) => b[0] - a[0]);
+}
+
+function filterMatches(f, plat) {
+  // Filter reading: topic / rating / platform filters plus any leftover words.
+  const out = [];
+  for (const p of problems) {
+    if (plat && p.plat !== plat) continue;
+    if (f.tags.length && !f.tags.every(t => p.tags.includes(t))) continue;
+    if (f.ratings.length && !f.ratings.some(n => (p.rating && Math.abs(p.rating - n) <= 50) || p.cid === n || p.num === n)) continue;
+    if (!f.text.every(t => p.key.includes(t))) continue;
+    out.push(p);
+  }
+  // Best for you first: unsolved before solved, then worth-it score (cap the work on huge sets).
+  const pool = out.sort((a, b) => (b.cid || b.num || 0) - (a.cid || a.num || 0)).slice(0, 600);
+  return { list: pool.map(p => [(p.status === "solved" ? -100 : 0) + evaluate(p).score, p]).sort((a, b) => b[0] - a[0]).map(x => x[1]), total: out.length };
+}
+
 function search(raw) {
   const q = raw.trim().toLowerCase();
   if (!q) return { items: [], total: 0, f: null };
@@ -287,29 +318,20 @@ function search(raw) {
   if (direct && byPid[direct.pid]) return { items: [byPid[direct.pid]], total: 1, f: null };
   const f = parseFilters(q);
   const plat = f.plat || (platFilter === "all" ? null : platFilter);
-  const filterOnly = !f.text.length;
-  const out = [];
-  for (const p of problems) {
-    if (plat && p.plat !== plat) continue;
-    if (f.tags.length && !f.tags.every(t => p.tags.includes(t))) continue;
-    if (f.ratings.length && !f.ratings.some(n => (p.rating && Math.abs(p.rating - n) <= 50) || p.cid === n || p.num === n)) continue;
-    if (!f.text.every(t => p.key.includes(t))) continue;
-    let s = 0;
-    if (!filterOnly) {
-      const nm = p.name.toLowerCase(), txt = f.text.join(" ");
-      if (nm === txt || p.id.toLowerCase() === txt || String(p.num) === txt) s += 100;
-      if (nm.startsWith(txt)) s += 30;
-      s += (p.cid || p.num || 0) / 1e5;
-    } else if (f.ratings.some(n => p.cid === n || p.num === n)) s += 50;
-    out.push([s, p]);
-  }
-  let items;
-  if (filterOnly && (f.tags.length || f.ratings.length)) {
-    // rank by personal worth: unsolved first, then score (cap the work for big result sets)
-    const pool = out.sort((a, b) => b[0] - a[0] || (b[1].cid || b[1].num || 0) - (a[1].cid || a[1].num || 0)).slice(0, 600).map(x => x[1]);
-    items = pool.map(p => [(p.status === "solved" ? -100 : 0) + evaluate(p).score, p]).sort((a, b) => b[0] - a[0]).map(x => x[1]);
-  } else items = out.sort((a, b) => b[0] - a[0]).map(x => x[1]);
-  return { items: items.slice(0, 8), total: out.length, f };
+  const hasFilters = f.tags.length || f.ratings.length || f.plat;
+  const text = textMatches(q, platFilter === "all" ? null : platFilter);
+  if (!hasFilters) return { items: text.slice(0, 8).map(x => x[1]), total: text.length, f: { tags: [], ratings: [], plat: null, text: q.split(/\s+/) } };
+  const filt = filterMatches(f, plat);
+  // Both readings: a strong title match ("jump game vii") wins; otherwise the filters ("dp 1400") lead.
+  // A title wins if it starts with what you typed; if the whole query is a topic name ("binary search"),
+  // the topic wins unless a title matches it exactly.
+  const onlyTopic = f.tags.length && !f.text.length && !f.ratings.length && !f.plat;
+  const strongTitle = text.length && text[0][0] >= (onlyTopic ? 100 : 30);
+  const order = strongTitle ? [...text.map(x => x[1]), ...filt.list] : [...filt.list, ...text.map(x => x[1])];
+  const seen = new Set(), items = [];
+  for (const p of order) { if (!seen.has(p.pid)) { seen.add(p.pid); items.push(p); } if (items.length >= 8) break; }
+  const useChips = !strongTitle && filt.total > 0;
+  return { items, total: useChips ? filt.total : text.length, f: useChips ? f : { tags: [], ratings: [], plat: null, text: q.split(/\s+/) } };
 }
 
 let sugg = [], active = -1, lastF = null, lastTotal = 0;
@@ -356,7 +378,9 @@ function runSearch() {
   clearEl.hidden = !qEl.value;
   if (!sugg.length && qEl.value.trim().length > 1) noMatch(); else renderSuggest();
 }
-function pick(i) { const p = sugg[i]; if (!p) return; qEl.value = `${p.plat === "CF" ? p.id : p.id} · ${p.name}`; sugg = []; renderSuggest(); select(p, true); qEl.blur(); }
+// What the search box shows once a problem is chosen: "1903C · Name" or "#3660 · Name" (never the URL slug).
+const selectedLabel = p => `${p.plat === "CF" ? p.id : (p.num != null ? "#" + p.num : "LC")} · ${p.name}`;
+function pick(i) { const p = sugg[i]; if (!p) return; qEl.value = selectedLabel(p); sugg = []; renderSuggest(); select(p, true); qEl.blur(); }
 qEl.addEventListener("input", runSearch);
 qEl.addEventListener("focus", () => { if (qEl.value && !qEl.value.includes(" · ")) runSearch(); });
 qEl.addEventListener("keydown", e => {
@@ -437,7 +461,7 @@ function select(p, push) {
   if ($("alts")) bindPicks($("alts"));
   $("run").onclick = () => deepAnalyze(p);
   $("picks-head").style.display = "none"; $("picks").style.display = "none";
-  qEl.value = `${p.plat === "CF" ? p.id : p.id} · ${p.name}`;
+  qEl.value = selectedLabel(p);
 }
 
 function reasonsHTML(res) {
