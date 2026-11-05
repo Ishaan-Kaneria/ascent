@@ -6,7 +6,7 @@ import math
 import sqlite3
 import time
 
-from . import db, difficulty
+from . import db, difficulty, ml
 from .config import Config
 from .sources import codeforces as cf
 from .sources import leetcode as lc
@@ -22,6 +22,7 @@ def refresh_catalog(conn: sqlite3.Connection, log=print) -> None:
         "id": c["id"], "name": c["name"], "kind": cf.contest_kind(c["name"]),
         "start_time": c.get("startTimeSeconds"), "duration": c.get("durationSeconds")} for c in contests))
     kinds = {c["id"]: cf.contest_kind(c["name"]) for c in contests}
+    starts = {c["id"]: c.get("startTimeSeconds") for c in contests}
 
     log("Fetching Codeforces problem set ...")
     problems, stats = cf.problemset()
@@ -42,14 +43,29 @@ def refresh_catalog(conn: sqlite3.Connection, log=print) -> None:
     model = difficulty.fit_unrated_model([r for r in rows if r["rating"]])
     if model:
         db.set_meta(conn, "unrated_model", model.to_json())
+
+    log("Training rating model (held-out evaluation) ...")
+    rm = ml.train_rating_model([{**r, "tags": json.loads(r["tags"]), "start_time": starts.get(r["contest_id"])}
+                                for r in rows])
+    use_ml = bool(rm and rm.metrics and rm.metrics["mae"] < rm.metrics["baseline_mae"])
+    if rm:
+        rm.metrics["used_for_estimates"] = use_ml
+        db.set_meta(conn, "rating_model", rm.to_json())
+        if rm.metrics:
+            log(f"  held-out MAE {rm.metrics['mae']} (baseline {rm.metrics['baseline_mae']}) on "
+                f"{rm.metrics['test_problems']} problems; within 200: {rm.metrics['within_200']:.0%}")
     for r in rows:
         kind = r.pop("kind")
         resid = 0.0
         if model and r["rating"] and r["solved_count"] is not None:
             pred = model.predict(kind, r["idx"], r["solved_count"])
             resid = (r["rating"] - pred) if pred else 0.0
-        elif model and not r["rating"]:
-            est = model.predict(kind, r["idx"], r["solved_count"])
+        elif not r["rating"]:
+            est = None
+            if use_ml:
+                est = rm.predict(kind, r["idx"], r["solved_count"], starts.get(r["contest_id"]), json.loads(r["tags"]))
+            elif model:
+                est = model.predict(kind, r["idx"], r["solved_count"])
             if est:
                 r["rating"], r["rating_source"] = est, "estimated"
         r["trick"] = difficulty.trickiness(r["rating"], json.loads(r["tags"]), resid)

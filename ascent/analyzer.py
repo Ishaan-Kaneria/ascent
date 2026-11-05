@@ -60,7 +60,7 @@ LEXICON: list[tuple[str, str, dict, set | None]] = [
     ("subarray", r"\bsubarray|\bsubsegment|\bcontiguous", {"two pointers": 0.5, "data structures": 0.3, "dp": 0.3}, None),
     ("xor", r"\bxor\b|\bbitwise\b|\\oplus|\\&|\bbits?\b", {"bitmasks": 1.0, "math": 0.3}, None),
     ("pow2", r"\bpowers? of (two|2)\b|2\^\{?[ik]\b", {"bitmasks": 0.6, "math": 0.4}, None),
-    ("number_theory", r"\bgcd\b|\blcm\b|greatest common divisor|least common multiple|\bdivisib|\bdivisors?\b|\bprimes?\b|\bcoprime",
+    ("number_theory", r"\bgcd\b|\blcm\b|greatest common divisor|least common multiple|\bdivisib\w*|\bdivisors?\b|\bprimes?\b|\bcoprime",
      {"number theory": 1.0, "math": 0.5}, None),
     ("parity", r"\bparity\b|\beven\b|\bodd\b", {"math": 0.4, "constructive algorithms": 0.3}, None),
     ("digits", r"\bdigits?\b|decimal (representation|notation)", {"math": 0.5, "brute force": 0.3, "dp": 0.2}, None),
@@ -386,8 +386,13 @@ def hidden_idea(official: list[str], predicted: dict) -> float | None:
 
 def analyze(pid: str, sections: dict[str, str] | None, meta: dict, *, level: int | None,
             weak_tags: list[str] | None = None, model: NaiveBayes | None = None,
-            expected_solved: float | None = None) -> Analysis:
-    """meta: rating, rating_source, tags, solved_count, trick, kind, contest_id, contest_name."""
+            expected_solved: float | None = None, status: str | None = None,
+            p_solve: float | None = None) -> Analysis:
+    """meta: rating, rating_source, tags, solved_count, trick, kind, contest_id, contest_name.
+    status: None | 'attempted' | 'solved'. p_solve: personal-model probability of a clean solve.
+
+    NOTE: ascent/web/brain.js implements the same scoring for the website;
+    tests/test_web.py checks the two agree. Change both together."""
     pts: list[tuple[int, str]] = []
     tags = [t for t in meta.get("tags", []) if not t.startswith("*")]
     rating = meta.get("rating")
@@ -406,7 +411,9 @@ def analyze(pid: str, sections: dict[str, str] | None, meta: dict, *, level: int
     # Legitimacy / calibration
     if "*special" in meta.get("tags", []) or "april fools" in (meta.get("contest_name") or "").lower():
         pts.append((-40, "special / April Fools problem: not representative of real contests"))
-    if rating and meta.get("rating_source", "official") == "official":
+    if rating and meta.get("rating_source") == "zerotrac":
+        pts.append((10, f"contest-calibrated rating {rating} (zerotrac, from LeetCode contest results)"))
+    elif rating and meta.get("rating_source", "official") == "official":
         pts.append((10, f"official rating {rating}: calibrated by thousands of contestants"))
     elif rating:
         pts.append((3, f"rating {rating} is an ESTIMATE (unrated on Codeforces)"))
@@ -466,10 +473,21 @@ def analyze(pid: str, sections: dict[str, str] | None, meta: dict, *, level: int
         else:
             pts.append((-10, f"+{d} above your level: too far, you will likely just read the editorial"))
     if weak_tags and set(tags) & set(weak_tags):
-        pts.append((10, f"covers your weak topic(s): {', '.join(set(tags) & set(weak_tags))}"))
+        pts.append((10, f"covers your weak topic(s): {', '.join(sorted(set(tags) & set(weak_tags)))}"))
+    if p_solve is not None:
+        if p_solve < 0.08:
+            pts.append((-5, f"your model gives you {p_solve:.0%} to solve it cleanly: you would mostly be reading the editorial"))
+        elif p_solve <= 0.65:
+            pts.append((5, f"your model gives you {p_solve:.0%} to solve it cleanly: hard enough to learn from, but doable"))
+        else:
+            pts.append((0, f"your model gives you {p_solve:.0%} to solve it cleanly"))
+    if status == "attempted":
+        pts.append((6, "you attempted it and did not solve it: unfinished business"))
 
     score = int(max(0, min(100, 40 + sum(p for p, _ in pts))))
     verdict = "TRAIN ON IT" if score >= 65 else ("OK" if score >= 45 else "SKIP")
+    if status == "solved":
+        verdict = "ALREADY SOLVED"
     return Analysis(pid, predicted, hits, cons, story, words, hid, score, verdict,
                     sorted(pts, key=lambda x: -abs(x[0])))
 

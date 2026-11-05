@@ -166,6 +166,39 @@ For a target *T* (default 1600), **all** of these must pass:
 **These thresholds are my judgement, not official numbers from Codeforces or
 any firm.** They're deliberately strict and easy to edit.
 
+### The web app and the Oracle (`ascent/dashboard.py`, `ascent/web/`)
+`ascent dashboard -o site/index.html` builds one self-contained page (also
+what Netlify serves). It has five tabs:
+
+| Tab | What's on it |
+|---|---|
+| Overview | rating ring, readiness gates, rating chart with rank bands, activity |
+| **Oracle** | search any Codeforces problem or contest-rated LeetCode problem |
+| Train | today's ladder and reviews due |
+| Topics | skill per topic |
+| Brain | each model's held-out accuracy |
+
+**Oracle.** Type an ID (`1903C`), a name, or paste a URL. You get:
+- a personal **worth-it score** with every point explained
+- your **clean-solve chance**, from your own trained model
+- three **better alternatives** if a problem isn't worth it
+
+"Deep analysis" takes a pasted statement and highlights each signal word in
+context, infers the intended complexity, and re-scores the problem.
+It runs entirely in your browser. `ascent/web/brain.js` is a port of
+`analyzer.py`, and `tests/test_web.py` checks that both give identical scores.
+
+### Trained models (`ascent/ml.py`), measured on every build
+
+| Model | What it predicts | How it's evaluated | Compared against |
+|---|---|---|---|
+| Difficulty (ridge regression) | a problem's rating from contest type, letter, solve count, age and tags | held-out *contests* | the simple group-mean model; used for unrated problems only when it wins |
+| Your solve model (logistic regression) | your chance of a clean solve, from your own attempts | time split: trained on your past, graded on your newest 25% | the Elo formula and your base rate (Brier score) |
+
+Both models' measured numbers appear on the **Brain** tab. The worth-it score
+itself is a set of transparent rules, because "worth it" has no ground truth.
+So no accuracy figure is claimed for it.
+
 ### Problem analyzer (`ascent/analyzer.py`)
 `ascent analyze 1903C` reads the statement and decides whether it's **worth
 your time**:

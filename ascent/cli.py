@@ -271,7 +271,10 @@ def cmd_analyze(a):
         if len(docs) < 50:
             print(f"Only {len(docs)} cached statements; run `ascent analyze --train 300` first.")
             return
-        print(json.dumps(analyzer.evaluate(docs), indent=2))
+        res = analyzer.evaluate(docs)
+        db.set_meta(conn, "nb_eval", json.dumps(res))
+        conn.commit()
+        print(json.dumps(res, indent=2))
         print("precision@3 = fraction of the top-3 predicted topics that are official tags (held-out, 5-fold).")
         return
     if not a.problem:

@@ -20,5 +20,8 @@ ascent = "ascent.cli:main"
 [tool.setuptools.packages.find]
 include = ["ascent*"]
 
+[tool.setuptools.package-data]
+ascent = ["web/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
