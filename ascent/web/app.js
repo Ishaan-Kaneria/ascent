@@ -253,47 +253,127 @@ function parseQuery(q) {
   if (m) return { pid: `CF:${m[1]}${m[2].toUpperCase()}` };
   return null;
 }
-function search(q) {
-  q = q.trim().toLowerCase();
-  if (!q) return [];
+
+/* Query language: free text + optional topic ("dp", "binary search", "nt"),
+ * rating ("1400" = 1350-1450) and platform ("cf", "lc"). Filter-only queries
+ * are ranked by YOUR worth-it score, so "dp 1400" means "best dp at 1400 for me". */
+const TAG_ALIASES = { dp: "dp", bs: "binary search", nt: "number theory", ds: "data structures", dsu: "dsu", dfs: "dfs and similar",
+  bfs: "dfs and similar", constructive: "constructive algorithms", impl: "implementation", bitmask: "bitmasks", bits: "bitmasks",
+  probability: "probabilities", combi: "combinatorics", sorting: "sortings", sort: "sortings", tree: "trees", graph: "graphs",
+  string: "strings", game: "games", "two pointer": "two pointers", "2p": "two pointers", greedy: "greedy", math: "math" };
+const TAG_PHRASES = [...new Set([...D.tag_names.filter(t => !t.startsWith("*")), ...Object.keys(TAG_ALIASES)])].sort((a, b) => b.length - a.length);
+let platFilter = "all";
+
+function parseFilters(q) {
+  const f = { tags: [], ratings: [], plat: null, text: [] };
+  let rest = " " + q + " ";
+  for (const ph of TAG_PHRASES) {
+    const re = new RegExp(`\\s${ph.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s`, "i");
+    if (re.test(rest)) { f.tags.push(TAG_ALIASES[ph] || ph); rest = rest.replace(re, " "); }
+  }
+  for (const t of rest.trim().split(/\s+/).filter(Boolean)) {
+    if (/^(cf|codeforces)$/.test(t)) f.plat = "CF";
+    else if (/^(lc|leetcode)$/.test(t)) f.plat = "LC";
+    else if (/^\d{3,4}$/.test(t) && +t >= 800 && +t <= 3500) f.ratings.push(+t);
+    else f.text.push(t);
+  }
+  return f;
+}
+
+function search(raw) {
+  const q = raw.trim().toLowerCase();
+  if (!q) return { items: [], total: 0, f: null };
   const direct = parseQuery(q);
-  if (direct && byPid[direct.pid]) return [byPid[direct.pid]];
-  const toks = q.split(/\s+/);
+  if (direct && byPid[direct.pid]) return { items: [byPid[direct.pid]], total: 1, f: null };
+  const f = parseFilters(q);
+  const plat = f.plat || (platFilter === "all" ? null : platFilter);
+  const filterOnly = !f.text.length;
   const out = [];
   for (const p of problems) {
-    if (!toks.every(t => p.key.includes(t))) continue;
+    if (plat && p.plat !== plat) continue;
+    if (f.tags.length && !f.tags.every(t => p.tags.includes(t))) continue;
+    if (f.ratings.length && !f.ratings.some(n => (p.rating && Math.abs(p.rating - n) <= 50) || p.cid === n || p.num === n)) continue;
+    if (!f.text.every(t => p.key.includes(t))) continue;
     let s = 0;
-    const nm = p.name.toLowerCase();
-    if (nm === q || p.id.toLowerCase() === q || String(p.num) === q) s += 100;
-    if (nm.startsWith(q)) s += 30;
-    if (String(p.cid) === q) s += 40;
-    s += (p.cid || p.num || 0) / 1e5;
+    if (!filterOnly) {
+      const nm = p.name.toLowerCase(), txt = f.text.join(" ");
+      if (nm === txt || p.id.toLowerCase() === txt || String(p.num) === txt) s += 100;
+      if (nm.startsWith(txt)) s += 30;
+      s += (p.cid || p.num || 0) / 1e5;
+    } else if (f.ratings.some(n => p.cid === n || p.num === n)) s += 50;
     out.push([s, p]);
   }
-  return out.sort((a, b) => b[0] - a[0]).slice(0, 8).map(x => x[1]);
+  let items;
+  if (filterOnly && (f.tags.length || f.ratings.length)) {
+    // rank by personal worth: unsolved first, then score (cap the work for big result sets)
+    const pool = out.sort((a, b) => b[0] - a[0] || (b[1].cid || b[1].num || 0) - (a[1].cid || a[1].num || 0)).slice(0, 600).map(x => x[1]);
+    items = pool.map(p => [(p.status === "solved" ? -100 : 0) + evaluate(p).score, p]).sort((a, b) => b[0] - a[0]).map(x => x[1]);
+  } else items = out.sort((a, b) => b[0] - a[0]).map(x => x[1]);
+  return { items: items.slice(0, 8), total: out.length, f };
 }
-let sugg = [], active = -1;
-const qEl = $("q"), sEl = $("suggest");
+
+let sugg = [], active = -1, lastF = null, lastTotal = 0;
+const qEl = $("q"), sEl = $("suggest"), clearEl = $("q-clear");
+const SCORE_CLASS = s => s >= 65 ? "pos" : s >= 45 ? "mid" : "neg";
+
+function mark(text, toks) {
+  let h = esc(text);
+  for (const t of toks) if (t.length > 1) h = h.replace(new RegExp(`(${esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "ig"), "<mark>$1</mark>");
+  return h;
+}
+
 function renderSuggest() {
-  sEl.innerHTML = sugg.map((p, i) => `<li role="option" aria-selected="${i === active}" data-i="${i}">
-     <span class="plat">${p.plat}</span><span class="mono" style="color:var(--ink-2);flex:none">${esc(p.plat === "CF" ? p.id : "#" + (p.num ?? ""))}</span>
-     <span class="s-name">${esc(p.name)}</span><span class="s-meta">${p.rating ?? "–"}${p.status === "solved" ? " · ✓" : ""}</span></li>`).join("");
-  sEl.classList.toggle("open", sugg.length > 0);
-  sEl.parentElement.setAttribute("aria-expanded", sugg.length > 0);
-  sEl.querySelectorAll("li").forEach(li => li.onmousedown = e => { e.preventDefault(); pick(+li.dataset.i); });
+  const toks = lastF ? lastF.text : [];
+  if (!sugg.length) { sEl.classList.remove("open"); sEl.parentElement.setAttribute("aria-expanded", "false"); return; }
+  const chips = lastF ? [...lastF.tags.map(t => `topic: ${t}`), ...lastF.ratings.map(r => `rating ≈ ${r}`), ...(lastF.plat ? [lastF.plat === "CF" ? "Codeforces" : "LeetCode"] : [])] : [];
+  const head = chips.length ? `<li class="s-head" aria-hidden="true">${chips.map(c => `<span class="chip">${esc(c)}</span>`).join("")}<span class="s-count">${lastTotal.toLocaleString()} match${lastTotal === 1 ? "" : "es"} · best for you first</span></li>` : "";
+  sEl.innerHTML = head + sugg.map((p, i) => {
+    const res = evaluate(p), col = p.plat === "CF" && p.rating ? rankOf(p.rating)[2] : "var(--ink-2)";
+    return `<li role="option" id="opt-${i}" aria-selected="${i === active}" data-i="${i}">
+      <span class="plat ${p.plat === "LC" ? "lc" : ""}">${p.plat}</span>
+      <span class="s-main"><span class="s-name">${mark(p.name, toks)}</span>
+        <span class="s-sub"><span class="mono">${esc(p.plat === "CF" ? p.id : "#" + (p.num ?? ""))}</span>${p.tags.filter(t => !t.startsWith("*")).slice(0, 3).map(t => ` · ${esc(t)}`).join("")}</span></span>
+      ${p.status === "solved" ? `<span class="s-done" title="you solved this">✓</span>` : ""}
+      <span class="s-rating" style="color:${col}">${p.rating ?? "–"}</span>
+      <span class="s-score ${SCORE_CLASS(res.score)}" title="worth-it score">${res.score}</span></li>`;
+  }).join("") + `<li class="s-foot" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></li>`;
+  sEl.classList.add("open");
+  sEl.parentElement.setAttribute("aria-expanded", "true");
+  qEl.setAttribute("aria-activedescendant", active >= 0 ? `opt-${active}` : "");
+  sEl.querySelectorAll("li[data-i]").forEach(li => {
+    li.onmousedown = e => { e.preventDefault(); pick(+li.dataset.i); };
+    li.onmousemove = () => { if (active !== +li.dataset.i) { active = +li.dataset.i; sEl.querySelectorAll("li[data-i]").forEach(x => x.setAttribute("aria-selected", x === li)); } };
+  });
+  const cur = $(`opt-${active}`); if (cur) cur.scrollIntoView({ block: "nearest" });
 }
-function pick(i) { const p = sugg[i]; if (!p) return; qEl.value = `${p.plat === "CF" ? p.id : p.id} · ${p.name}`; sugg = []; renderSuggest(); select(p, true); }
-qEl.addEventListener("input", () => {
-  sugg = search(qEl.value); active = sugg.length ? 0 : -1; renderSuggest();
-  if (!sugg.length && qEl.value.trim().length > 2) { sEl.innerHTML = `<li style="cursor:default;color:var(--muted)">No match in ${problems.length.toLocaleString()} indexed problems. LeetCode coverage is contest problems (zerotrac-rated) only.</li>`; sEl.classList.add("open"); }
-});
+function noMatch() {
+  sEl.innerHTML = `<li class="s-empty">No match in ${problems.length.toLocaleString()} problems.<br><span>Try a topic and rating like <b>dp 1400</b>, a contest number, or paste a URL. LeetCode covers contest problems (zerotrac-rated).</span></li>`;
+  sEl.classList.add("open");
+}
+function runSearch() {
+  const r = search(qEl.value);
+  sugg = r.items; lastF = r.f; lastTotal = r.total; active = sugg.length ? 0 : -1;
+  clearEl.hidden = !qEl.value;
+  if (!sugg.length && qEl.value.trim().length > 1) noMatch(); else renderSuggest();
+}
+function pick(i) { const p = sugg[i]; if (!p) return; qEl.value = `${p.plat === "CF" ? p.id : p.id} · ${p.name}`; sugg = []; renderSuggest(); select(p, true); qEl.blur(); }
+qEl.addEventListener("input", runSearch);
+qEl.addEventListener("focus", () => { if (qEl.value && !qEl.value.includes(" · ")) runSearch(); });
 qEl.addEventListener("keydown", e => {
   if (e.key === "ArrowDown") { active = Math.min(sugg.length - 1, active + 1); renderSuggest(); e.preventDefault(); }
   else if (e.key === "ArrowUp") { active = Math.max(0, active - 1); renderSuggest(); e.preventDefault(); }
   else if (e.key === "Enter") { if (active >= 0) pick(active); e.preventDefault(); }
-  else if (e.key === "Escape") { sugg = []; renderSuggest(); }
+  else if (e.key === "Escape") { if (sEl.classList.contains("open")) { sugg = []; renderSuggest(); sEl.classList.remove("open"); } else { qEl.value = ""; clearEl.hidden = true; } }
 });
 qEl.addEventListener("blur", () => setTimeout(() => { sEl.classList.remove("open"); }, 120));
+clearEl.onclick = () => { qEl.value = ""; clearEl.hidden = true; sugg = []; sEl.classList.remove("open"); qEl.focus(); };
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
+  platFilter = b.dataset.plat;
+  document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  if (qEl.value && !qEl.value.includes(" · ")) runSearch();
+  qEl.focus();
+});
+document.querySelectorAll(".try").forEach(b => b.onclick = () => { qEl.value = b.dataset.q; qEl.focus(); runSearch(); });
 
 const VCLASS = { "TRAIN ON IT": "v-train", OK: "v-ok", SKIP: "v-skip", "ALREADY SOLVED": "v-solved" };
 const VICON = { "TRAIN ON IT": "✓", OK: "~", SKIP: "✕", "ALREADY SOLVED": "★" };

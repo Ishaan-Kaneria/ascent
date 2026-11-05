@@ -51,12 +51,29 @@
   <section class="tab" id="tab-oracle" role="tabpanel">
     <div class="oracle-hero">
       <h1 class="display">Is it <span class="grad">worth</span> your time?</h1>
-      <p class="sub">Search any Codeforces problem or contest-rated LeetCode problem by ID, name or URL. The verdict is personal: it uses your level, your weak topics and your trained solve model.</p>
-      <div class="search" role="combobox" aria-expanded="false" aria-owns="suggest" aria-haspopup="listbox">
-        <svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.41 1.4-5.4-5.38A8 8 0 1 1 10 2Zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg>
-        <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="1903C, two-sum, &quot;binary search&quot;, or paste a URL" aria-label="Search problems" aria-autocomplete="list" aria-controls="suggest">
-        <kbd>/</kbd>
-        <ul id="suggest" role="listbox"></ul>
+      <p class="sub">Search any Codeforces or contest-rated LeetCode problem by ID, name, link, or topic + rating. The verdict is personal: it uses your level, your weak topics and your trained solve model.</p>
+      <div class="search-wrap">
+        <div class="search" role="combobox" aria-expanded="false" aria-owns="suggest" aria-haspopup="listbox">
+          <svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.41 1.4-5.4-5.38A8 8 0 1 1 10 2Zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg>
+          <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Search 1903C, a name, “dp 1400”, or paste a link" aria-label="Search problems" aria-autocomplete="list" aria-controls="suggest">
+          <button class="q-clear" id="q-clear" type="button" aria-label="Clear search" hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></svg></button>
+          <kbd class="q-kbd">/</kbd>
+          <ul id="suggest" role="listbox" aria-label="Matching problems"></ul>
+        </div>
+        <div class="search-under">
+          <div class="seg" role="group" aria-label="Platform">
+            <button type="button" data-plat="all" aria-pressed="true">All</button>
+            <button type="button" data-plat="CF" aria-pressed="false">Codeforces</button>
+            <button type="button" data-plat="LC" aria-pressed="false">LeetCode</button>
+          </div>
+          <div class="tries"><span>Try</span>
+            <button type="button" class="try" data-q="dp 1400">dp 1400</button>
+            <button type="button" class="try" data-q="constructive 1300">constructive 1300</button>
+            <button type="button" class="try" data-q="number theory">number theory</button>
+            <button type="button" class="try" data-q="lc 1700">lc 1700</button>
+          </div>
+        </div>
       </div>
     </div>
     <div id="result"></div>
