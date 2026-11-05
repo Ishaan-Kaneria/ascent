@@ -132,25 +132,47 @@ def sync_lc(conn: sqlite3.Connection, cfg: Config, *, refresh: bool = False, log
         log(f"  {len(zr)} rated LeetCode problems")
     if not cfg.lc_handle:
         return
+    # Each part can fail on its own (LeetCode sometimes refuses automated
+    # requests); one failure must not hide the others.
+    errors = []
     log(f"Fetching LeetCode data for {cfg.lc_handle} ...")
-    hist = lc.contest_history(cfg.lc_handle)
-    prev = 1500.0  # LeetCode's starting contest rating
-    rows = []
-    for h in hist:
-        rows.append({"platform": "LC", "contest_id": h["contest"]["title"], "contest_name": h["contest"]["title"],
-                     "time": h["contest"]["startTime"], "old_rating": int(round(prev)),
-                     "new_rating": int(round(h["rating"])), "rank": h.get("ranking")})
-        prev = h["rating"]
-    db.upsert_many(conn, "rating_history", rows)
-    seen = {r["sid"] for r in conn.execute("SELECT sid FROM submissions WHERE platform='LC'")}
-    new = 0
-    for s in lc.recent_accepted(cfg.lc_handle):
-        if f"LC:{s['id']}" not in seen:
-            db.journal(conn, {"type": "lc_ac", "sid": s["id"], "pid": f"LC:{s['titleSlug']}",
-                              "title": s["title"], "at": int(s["timestamp"])})
-            new += 1
+    try:
+        prof = lc.profile_summary(cfg.lc_handle)
+        db.set_meta(conn, "lc_profile", json.dumps(prof))
+        log(f"  profile: {prof['solved'].get('All', 0)} solved, contest rating {prof['contest_rating'] or 'none'}")
+    except Exception as e:  # noqa: BLE001 - recorded and shown on the site
+        errors.append(f"profile: {e}")
+    try:
+        hist = lc.contest_history(cfg.lc_handle)
+        prev = 1500.0  # LeetCode's starting contest rating
+        rows = []
+        for h in hist:
+            rows.append({"platform": "LC", "contest_id": h["contest"]["title"], "contest_name": h["contest"]["title"],
+                         "time": h["contest"]["startTime"], "old_rating": int(round(prev)),
+                         "new_rating": int(round(h["rating"])), "rank": h.get("ranking")})
+            prev = h["rating"]
+        db.upsert_many(conn, "rating_history", rows)
+        log(f"  {len(hist)} LeetCode contests")
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"contest history: {e}")
+    try:
+        seen = {r["sid"] for r in conn.execute("SELECT sid FROM submissions WHERE platform='LC'")}
+        new = 0
+        for s in lc.recent_accepted(cfg.lc_handle):
+            if f"LC:{s['id']}" not in seen:
+                db.journal(conn, {"type": "lc_ac", "sid": s["id"], "pid": f"LC:{s['titleSlug']}",
+                                  "title": s["title"], "at": int(s["timestamp"])})
+                new += 1
+        log(f"  {new} new accepted problems journaled")
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"recent accepted: {e}")
     conn.commit()
-    log(f"  {len(hist)} LeetCode contests, {new} new accepted problems journaled")
+    if errors:
+        parts = [e.split(": ", 1) for e in errors]
+        msgs = {m for _, m in parts}
+        if len(msgs) == 1:  # same root cause everywhere: say it once
+            raise RuntimeError(f"{', '.join(w for w, _ in parts)}: {msgs.pop()}")
+        raise RuntimeError("; ".join(errors))
 
 
 def update_reviews(conn: sqlite3.Connection, outcomes, level: int) -> int:

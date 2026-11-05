@@ -55,15 +55,20 @@ def cmd_sync(a):
         conn.commit()
         print(f"Rebuilt database; replayed {n} journal events.")
     ok = cf_ok = True
+    status = json.loads(db.get_meta(conn, "sync_status", "{}"))
     for name, fn in (("Codeforces", sync.sync_cf), ("LeetCode", sync.sync_lc)):
         if (a.only and a.only != name.lower()[:2]):
             continue
         try:
             fn(conn, cfg, refresh=a.refresh)
-        except (FetchError, RuntimeError, KeyError) as e:
+            status[name] = {"ok": True, "at": int(time.time())}
+        except Exception as e:  # noqa: BLE001 - any source failure is reported, never fatal
             ok = False
             cf_ok = cf_ok and name != "Codeforces"
+            status[name] = {"ok": False, "at": int(time.time()), "error": str(e)[:300]}
             print(f"! {name} sync failed: {e}", file=sys.stderr)
+    db.set_meta(conn, "sync_status", json.dumps(status))
+    conn.commit()
     st = load(conn, cfg)
     added = sync.update_reviews(conn, st.cf_outcomes, st.level())
     if added:
@@ -304,9 +309,14 @@ def cmd_analyze(a):
     st = load(conn, cfg)
     needs = tag_needs(st)
     weak = [t for t, _ in sorted(needs.items(), key=lambda kv: -kv[1])[:4]]
-    res = analyzer.analyze(pid, sections, meta, level=st.level() if st.cf_outcomes or st.cf_rating else None,
-                           weak_tags=weak, model=analyzer.load_model(conn),
-                           expected_solved=sync.expected_solved(conn, pid))
+    status = "solved" if pid in st.solved else ("attempted" if pid in st.attempted else None)
+    if pid.startswith("LC:"):  # LeetCode problems are judged against your LeetCode level
+        res = analyzer.analyze(pid, sections, meta, level=round(st.lc_rating or 1500), status=status,
+                               model=analyzer.load_model(conn))
+    else:
+        res = analyzer.analyze(pid, sections, meta, level=st.level() if st.cf_outcomes or st.cf_rating else None,
+                               weak_tags=weak, model=analyzer.load_model(conn),
+                               expected_solved=sync.expected_solved(conn, pid), status=status)
     _print_analysis(res, meta)
 
 

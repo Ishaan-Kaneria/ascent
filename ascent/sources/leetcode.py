@@ -22,10 +22,23 @@ ZEROTRAC = "https://raw.githubusercontent.com/zerotrac/leetcode_problem_rating/m
 def _gql(query: str, variables: dict) -> dict:
     body = json.dumps({"query": query, "variables": variables}).encode()
     res = get_json(GRAPHQL, data=body, headers={
-        "Content-Type": "application/json", "Referer": "https://leetcode.com"})
+        "Content-Type": "application/json", "Accept": "application/json",
+        "Origin": "https://leetcode.com", "Referer": "https://leetcode.com/"})
     if res.get("errors"):
         raise RuntimeError(f"LeetCode GraphQL error: {res['errors']}")
     return res["data"]
+
+
+def profile_summary(username: str) -> dict:
+    """Solved counts by difficulty + contest standing (public profile data)."""
+    d = profile(username)
+    user = d.get("matchedUser")
+    if not user:
+        raise RuntimeError(f"LeetCode user '{username}' not found (check the handle)")
+    solved = {x["difficulty"]: x["count"] for x in user["submitStatsGlobal"]["acSubmissionNum"]}
+    cr = d.get("userContestRanking") or {}
+    return {"solved": solved, "contest_rating": cr.get("rating"), "attended": cr.get("attendedContestsCount") or 0,
+            "top_percentage": cr.get("topPercentage")}
 
 
 def profile(username: str) -> dict:

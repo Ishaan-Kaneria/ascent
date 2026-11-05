@@ -16,7 +16,7 @@ from importlib import resources
 
 from . import analyzer, db, difficulty, ml
 from .readiness import cf_gates, verdict
-from .recommend import recommend, tag_needs
+from .recommend import recommend, recommend_lc, tag_needs
 from .state import State
 
 KINDS = ml.KINDS
@@ -96,6 +96,16 @@ def build_data(conn, st: State, *, train_personal: bool = True) -> dict:
     nb_eval = db.get_meta(conn, "nb_eval")
 
     cf_rows, lc_rows, tag_names = _catalog(conn, st)
+    lc_prof = db.get_meta(conn, "lc_profile")
+    lc_recent = [dict(r) for r in conn.execute(
+        """SELECT s.pid, s.time, p.name, p.rating, p.rating_source FROM submissions s LEFT JOIN problems p ON p.pid = s.pid
+           WHERE s.platform='LC' AND s.verdict='OK' ORDER BY s.time DESC LIMIT 12""")]
+    leetcode = {
+        "handle": st.cfg.lc_handle, "profile": json.loads(lc_prof) if lc_prof else None,
+        "rating": st.lc_rating, "level": round(st.lc_rating or 1500), "level_assumed": st.lc_rating is None,
+        "recent": lc_recent, "tracked": sum(1 for p in st.solved if p.startswith("LC:")),
+        "recs": [r.__dict__ for r in recommend_lc(conn, st, 6)] if lc_rows else [],
+    }
     weak = [t for t, _ in sorted(needs.items(), key=lambda kv: -kv[1])[:4]]
     return {
         "generated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
@@ -119,6 +129,8 @@ def build_data(conn, st: State, *, train_personal: bool = True) -> dict:
         "models": {"rating": rating_metrics, "personal": personal.metrics, "personal_w": personal.weights,
                    "analyzer": {"signals": len(analyzer.LEXICON), "nb_docs": nb.n_docs if nb else 0,
                                 "nb_eval": json.loads(nb_eval) if nb_eval else None}},
+        "leetcode": leetcode,
+        "sync_status": json.loads(db.get_meta(conn, "sync_status", "{}")),
         "brain": _brain_constants(),
         "kinds": KINDS, "tag_names": tag_names, "cf": cf_rows, "lc": lc_rows,
     }

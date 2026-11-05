@@ -155,10 +155,9 @@ def recommend(conn: sqlite3.Connection, st: State, n: int = 8, *, mode: str = "m
 
 
 def recommend_lc(conn: sqlite3.Connection, st: State, n: int = 5, seed: int | None = None) -> list[Rec]:
-    """LeetCode problems by zerotrac contest rating, above your LC contest rating."""
-    if not st.lc_rating:
-        return []
-    base = st.lc_rating
+    """LeetCode problems by zerotrac contest rating, above your LC contest rating
+    (LeetCode's starting rating of 1500 if you have not played a contest yet)."""
+    base = st.lc_rating or 1500
     rng = random.Random(seed if seed is not None else int(time.strftime("%Y%m%d")))
     rows = [r for r in conn.execute(
         "SELECT * FROM problems WHERE platform='LC' AND rating_source='zerotrac' AND rating BETWEEN ? AND ?",
@@ -167,5 +166,5 @@ def recommend_lc(conn: sqlite3.Connection, st: State, n: int = 5, seed: int | No
     out = []
     for r in sorted(rows[:n], key=lambda r: r["rating"]):
         out.append(Rec(r["pid"], r["name"], r["rating"], "zerotrac", [], "lc",
-                       f"LC contest-rated {r['rating']} (you: {base:.0f})", r["url"], 40, 0.0))
+                       f"LC contest-rated {r['rating']} (you: {base:.0f}{'' if st.lc_rating else ', LeetCode starting rating'})", r["url"], 40, 0.0))
     return out

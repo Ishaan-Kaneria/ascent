@@ -61,7 +61,8 @@ for (const r of D.lc) {
     status: st === 2 ? "solved" : st === 1 ? "attempted" : null, url: `https://leetcode.com/problems/${slug}/` };
   p.key = (num + " " + slug + " " + name).toLowerCase(); problems.push(p); byPid[p.pid] = p;
 }
-const lcLevel = me.lc_rating ? Math.round(me.lc_rating) : null;
+const LC = D.leetcode || { level: 1500, level_assumed: true, recs: [], recent: [] };
+const lcLevel = LC.level;
 
 function evaluate(p, sections) {
   const meta = { rating: p.rating, rating_source: p.source, tags: p.tags, solved_count: p.solved, trick: p.trick,
@@ -108,17 +109,27 @@ function renderHero() {
       <div class="have">${esc(g.have)}</div>
       <div class="more"><div><b>Required:</b> ${esc(g.need)}</div>${g.passed ? "" : `<div style="margin-top:6px"><b>Do:</b> ${esc(g.action)}</div>`}</div></button>`).join("");
   document.querySelectorAll(".gate").forEach(b => b.onclick = () => { b.classList.toggle("open"); b.setAttribute("aria-expanded", b.classList.contains("open")); });
-  $("foot").textContent = `Built ${D.generated} from live Codeforces${D.lc_handle ? " + LeetCode" : ""} data · ${problems.length.toLocaleString()} problems indexed · ascent`;
+  const ss = D.sync_status || {};
+  const srcs = Object.entries(ss).map(([k, v]) => `<span class="src"><span class="badge ${v.ok ? "b-pass" : "b-fail"}">${v.ok ? "✓" : "✕"} ${esc(k)}</span></span>`).join("");
+  $("foot").innerHTML = `Built ${esc(D.generated)} · ${problems.length.toLocaleString()} problems indexed${srcs ? " · " + srcs : ""}`;
 }
 
 function drawRating() {
-  const H = D.history, host = "chart-rating";
-  if (H.length < 2) { $(host).innerHTML = `<p class="empty">Fewer than two rated rounds yet. Rated rounds are the only thing that moves this line.</p>`; return; }
-  const W = widthOf(host, 300), Ht = 250, m = { l: 40, r: 74, t: 10, b: 26 }, s = svgIn(host, W, Ht);
+  drawLine("chart-rating", D.history, { bands: true, target: D.target,
+    empty: "Fewer than two rated rounds yet. Rated rounds are the only thing that moves this line." });
+  if (D.history.length >= 2) $("rating-sub").textContent = `max ${me.cf_max} · target ${D.target} dashed`;
+}
+function drawLC() {
+  drawLine("chart-lc", D.lc_history, { bands: false, target: null,
+    empty: LC.handle ? "Fewer than two rated LeetCode contests yet. Weekly and biweekly contests calibrate your LeetCode level." : "Add your LeetCode handle to see this." });
+}
+function drawLine(host, H, opt) {
+  if (H.length < 2) { $(host).innerHTML = `<p class="empty">${esc(opt.empty)}</p>`; return; }
+  const W = widthOf(host, 300), Ht = 250, m = { l: 40, r: opt.bands ? 74 : 14, t: 10, b: 26 }, s = svgIn(host, W, Ht);
   const t0 = H[0].t, t1 = H[H.length - 1].t, rs = H.map(h => h.r);
-  const lo = Math.floor((Math.min(...rs) - 100) / 100) * 100, hi = Math.ceil((Math.max(...rs, D.target) + 100) / 100) * 100;
+  const lo = Math.floor((Math.min(...rs) - 100) / 100) * 100, hi = Math.ceil((Math.max(...rs, opt.target || 0) + 100) / 100) * 100;
   const X = t => m.l + (t - t0) / (t1 - t0 || 1) * (W - m.l - m.r), Y = r => m.t + (hi - r) / (hi - lo) * (Ht - m.t - m.b);
-  for (let i = 0; i < RANKS.length; i++) {
+  for (let i = 0; opt.bands && i < RANKS.length; i++) {
     const a = Math.max(lo, RANKS[i][0]), b = Math.min(hi, i + 1 < RANKS.length ? RANKS[i + 1][0] : 5000);
     if (b <= a) continue;
     el("rect", { x: m.l, y: Y(b), width: W - m.l - m.r, height: Y(a) - Y(b), fill: RANKS[i][2], opacity: 0.08 }, s);
@@ -126,12 +137,13 @@ function drawRating() {
   }
   const step = hi - lo > 1000 ? 200 : 100;
   for (let r = lo; r <= hi; r += step) { el("line", { x1: m.l, x2: W - m.r, y1: Y(r), y2: Y(r), stroke: "var(--grid)" }, s); el("text", { x: m.l - 8, y: Y(r) + 4, "text-anchor": "end" }, s).textContent = r; }
-  el("line", { x1: m.l, x2: W - m.r, y1: Y(D.target), y2: Y(D.target), stroke: "var(--ink-2)", "stroke-dasharray": "4 4" }, s);
+  if (opt.target) el("line", { x1: m.l, x2: W - m.r, y1: Y(opt.target), y2: Y(opt.target), stroke: "var(--ink-2)", "stroke-dasharray": "4 4" }, s);
+  const color = r => opt.bands ? rankOf(r)[2] : "var(--data)";
   const path = el("path", { d: H.map((h, i) => (i ? "L" : "M") + X(h.t).toFixed(1) + " " + Y(h.r).toFixed(1)).join(""), fill: "none", stroke: "var(--ink)", "stroke-width": 2, "stroke-linejoin": "round" }, s);
   const len = path.getTotalLength ? path.getTotalLength() : 0;
   if (len) { path.style.strokeDasharray = len; path.style.strokeDashoffset = len; path.getBoundingClientRect(); path.style.transition = "stroke-dashoffset 1.2s ease"; path.style.strokeDashoffset = 0; }
   const last = H[H.length - 1];
-  el("circle", { cx: X(last.t), cy: Y(last.r), r: 5, fill: rankOf(last.r)[2], stroke: "var(--bg)", "stroke-width": 2 }, s);
+  el("circle", { cx: X(last.t), cy: Y(last.r), r: 5, fill: color(last.r), stroke: "var(--bg)", "stroke-width": 2 }, s);
   const cross = el("line", { y1: m.t, y2: Ht - m.b, stroke: "var(--axis)", visibility: "hidden" }, s);
   const dot = el("circle", { r: 5, stroke: "var(--bg)", "stroke-width": 2, visibility: "hidden" }, s);
   const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: Ht - m.t - m.b, fill: "transparent" }, s);
@@ -140,11 +152,10 @@ function drawRating() {
     let best = H[0]; for (const h of H) if (Math.abs(X(h.t) - px) < Math.abs(X(best.t) - px)) best = h;
     const i = H.indexOf(best), d = i ? best.r - H[i - 1].r : null;
     cross.setAttribute("x1", X(best.t)); cross.setAttribute("x2", X(best.t)); cross.setAttribute("visibility", "visible");
-    dot.setAttribute("cx", X(best.t)); dot.setAttribute("cy", Y(best.r)); dot.setAttribute("fill", rankOf(best.r)[2]); dot.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", X(best.t)); dot.setAttribute("cy", Y(best.r)); dot.setAttribute("fill", color(best.r)); dot.setAttribute("visibility", "visible");
     showTip(e, `<b>${best.r}</b>${d != null ? ` <span class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${d}</span>` : ""}<br>${esc(best.name)}<br><span style="color:var(--muted)">${new Date(best.t * 1000).toLocaleDateString()}</span>`);
   });
   hit.addEventListener("mouseleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); });
-  $("rating-sub").textContent = `max ${me.cf_max} · target ${D.target} dashed`;
 }
 
 function drawBands() {
@@ -208,8 +219,29 @@ function drawTags() {
   el("text", { x: X(me.skill) + 5, y: m.t - 4, style: "fill:var(--ink);font-weight:600" }, s).textContent = `overall ${me.skill}`;
 }
 
-function drawCharts() { if ($("tab-overview").classList.contains("active")) { drawRating(); drawBands(); drawHeat(); } if ($("tab-topics").classList.contains("active")) drawTags(); }
+function drawCharts() { if ($("tab-overview").classList.contains("active")) { drawRating(); drawBands(); drawHeat(); drawLC(); } if ($("tab-topics").classList.contains("active")) drawTags(); }
 let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(drawCharts, 150); });
+
+/* ---------- leetcode ---------- */
+function renderLeetCode() {
+  const st = (D.sync_status || {}).LeetCode, P = LC.profile;
+  $("lc-sub").textContent = LC.handle ? `${LC.handle} · ${LC.tracked} solves tracked by ascent` : "No LeetCode handle configured.";
+  $("lc-alert").innerHTML = st && !st.ok ? `<div class="alert" role="alert"><span>⚠</span><div><b>LeetCode sync failed on the last build.</b> Showing whatever was saved before.<br>
+      <code>${esc(st.error)}</code><br><span style="color:var(--ink-2)">LeetCode sometimes refuses automated requests. Codeforces data and LeetCode problem ratings (zerotrac) are unaffected.</span></div></div>` : "";
+  if (!LC.handle) { $("lc-card").innerHTML = `<p class="empty">Set <code>LC_HANDLE</code> in netlify.toml (or <code>ascent init --lc</code>) to track LeetCode.</p>`; return; }
+  const rating = P && P.contest_rating ? Math.round(P.contest_rating) : (LC.rating ? Math.round(LC.rating) : null);
+  const solved = P ? P.solved : null;
+  const rows = solved ? [["Easy", solved.Easy || 0], ["Medium", solved.Medium || 0], ["Hard", solved.Hard || 0]] : [];
+  const mx = Math.max(1, ...rows.map(r => r[1]));
+  $("lc-card").innerHTML = `
+    <div class="lc-top">
+      <div><div class="l">Contest rating</div><div class="v ${rating ? "grad" : ""}">${rating ?? "1500"}</div><div class="sub">${rating ? (P && P.top_percentage ? `top ${P.top_percentage}% · ` : "") + (n => `${n} contest${n === 1 ? "" : "s"}`)(P ? P.attended : D.lc_history.length) : "starting rating: no rated contests yet"}</div></div>
+      <div><div class="l">Solved</div><div class="v">${solved ? (solved.All || 0) : "–"}</div><div class="sub">${solved ? "all time (public profile)" : "profile not loaded"}</div></div>
+    </div>
+    ${rows.map(([n, v]) => `<div class="diff"><span>${n}</span><div class="t"><div style="width:${Math.round(v / mx * 100)}%"></div></div><span class="mono">${v}</span></div>`).join("")}
+    ${LC.recent.length ? `<div class="sub" style="margin-top:14px">Recently accepted (tracked)</div><ul class="recent">${LC.recent.slice(0, 6).map(r => `<li><a href="https://leetcode.com/problems/${esc(r.pid.slice(3))}/" target="_blank" rel="noopener">${esc(r.name || r.pid.slice(3))}</a><span class="mono" style="color:var(--muted)">${r.rating && r.rating_source === "zerotrac" ? r.rating : "–"}</span></li>`).join("")}</ul>` : ""}`;
+  $("lc-rating-sub").textContent = rating ? `now ${rating}` : "";
+}
 
 /* ---------- oracle ---------- */
 function parseQuery(q) {
@@ -389,6 +421,10 @@ function renderTrain() {
       <div class="foot"><span class="chip strong">${r.rating}${r.rating_source === "estimated" ? " est." : ""}</span><span class="chip">~${r.est_minutes} min</span>${r.tags.slice(0, 2).map(t => `<span class="chip">${esc(t)}</span>`).join("")}</div></button>`; }).join("")
     : `<p class="empty">No recommendations yet: the catalog loads on the first sync.</p>`;
   bindPicks($("recs"));
+  const lcCards = (LC.recs || []).map(r => byPid[r.pid]).filter(Boolean);
+  $("lc-ladder-sub").textContent = `Contest-rated LeetCode problems (zerotrac) from ${lcLevel + 100} to ${lcLevel + 400}${LC.level_assumed ? ", using LeetCode's starting rating 1500 until you play a contest" : ` (your rating ${lcLevel})`}.`;
+  $("lc-recs").innerHTML = lcCards.length ? lcCards.map(p => pickCard(p, evaluate(p), "leetcode")).join("") : `<p class="empty">LeetCode problem ratings not loaded on this build.</p>`;
+  bindPicks($("lc-recs"));
   $("reviews").innerHTML = D.reviews.length ? `<table><tr><th>Problem</th><th>Rating</th><th>Why</th></tr>${D.reviews.map(r => `<tr><td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.pid)} · ${esc(r.name)}</a></td><td>${r.rating ?? "–"}</td><td style="color:var(--ink-2)">${esc(r.reason)}</td></tr>`).join("")}</table>`
     : `<p class="empty">Nothing due. Clean slate.</p>`;
 }
@@ -423,5 +459,5 @@ function renderModels() {
 }
 
 /* ---------- boot ---------- */
-renderHero(); renderPicks(); renderTrain(); renderModels(); route();
+renderHero(); renderLeetCode(); renderPicks(); renderTrain(); renderModels(); route();
 })();
