@@ -7,6 +7,8 @@ It only says you're ready when every evidence gate passes.
 
 Built for one goal: **Codeforces Expert (1600+) and passing quant / big-tech OAs.**
 
+**Live dashboard: [ascent-cp.netlify.app](https://ascent-cp.netlify.app/)** (rebuilt daily from real Codeforces/LeetCode data)
+
 ```
 $ ascent readiness
 Codeforces 1600
