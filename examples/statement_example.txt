@@ -1,0 +1,17 @@
+Little Mira has an array a of n integers and a number k. She may perform the following
+operation any number of times: choose an index i and replace a_i with gcd(a_i, k).
+
+Find the minimum number of operations needed so that the product of all elements is
+divisible by k, or report that it is impossible.
+
+Input
+The first line contains t (1 \le t \le 10^4), the number of test cases.
+The first line of each test case contains n and k (1 \le n \le 2 \cdot 10^5, 1 \le k \le 10^{18}).
+The second line contains a_1, ..., a_n (1 \le a_i \le 10^{18}).
+The sum of n over all test cases does not exceed 2 \cdot 10^5.
+
+Output
+For each test case print one integer: the answer, or -1 if it is impossible.
+
+Note
+In the first test case the product is already divisible by k.

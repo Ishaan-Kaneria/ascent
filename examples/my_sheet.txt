@@ -1,0 +1,8 @@
+# Lines starting with # set a section. One problem per line: Codeforces URL or ID,
+# LeetCode URL, or any other URL (tick those off with `ascent mark URL`).
+# Paste your CP31 / Striver A2Z links in this format: ascent does not ship those sheets.
+# 1400
+https://codeforces.com/problemset/problem/1903/C
+1873F
+# DSA
+https://leetcode.com/problems/two-sum/
