@@ -109,6 +109,7 @@ def build_data(conn, st: State, *, train_personal: bool = True) -> dict:
     weak = [t for t, _ in sorted(needs.items(), key=lambda kv: -kv[1])[:4]]
     return {
         "generated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
+        "generated_at": int(time.time()),
         "handle": st.cfg.cf_handle, "lc_handle": st.cfg.lc_handle, "target": target,
         "min_contest_id": st.cfg.min_contest_id,
         "me": {"cf_rating": st.cf_rating, "cf_max": st.cf_max, "lc_rating": st.lc_rating,
@@ -134,6 +135,13 @@ def build_data(conn, st: State, *, train_personal: bool = True) -> dict:
         "brain": _brain_constants(),
         "kinds": KINDS, "tag_names": tag_names, "cf": cf_rows, "lc": lc_rows,
     }
+
+
+def build_info(data: dict) -> dict:
+    """Small public file next to the page: lets the live/autobuild functions know
+    who the site is for and when it was built."""
+    return {"generated_at": data["generated_at"], "handle": data["handle"], "lc_handle": data["lc_handle"],
+            "cf_rating": data["me"]["cf_rating"]}
 
 
 def _asset(name: str) -> str:

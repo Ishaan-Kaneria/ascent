@@ -109,6 +109,9 @@ function renderHero() {
       <div class="have">${esc(g.have)}</div>
       <div class="more"><div><b>Required:</b> ${esc(g.need)}</div>${g.passed ? "" : `<div style="margin-top:6px"><b>Do:</b> ${esc(g.action)}</div>`}</div></button>`).join("");
   document.querySelectorAll(".gate").forEach(b => b.onclick = () => { b.classList.toggle("open"); b.setAttribute("aria-expanded", b.classList.contains("open")); });
+  renderFooter();
+}
+function renderFooter() {
   const ss = D.sync_status || {};
   const srcs = Object.entries(ss).map(([k, v]) => `<span class="src"><span class="badge ${v.ok ? "b-pass" : "b-fail"}">${v.ok ? "✓" : "✕"} ${esc(k)}</span></span>`).join("");
   $("foot").innerHTML = `Built ${esc(D.generated)} · ${problems.length.toLocaleString()} problems indexed${srcs ? " · " + srcs : ""}`;
@@ -427,7 +430,9 @@ function pickCard(p, res, label) {
 }
 function bindPicks(root) { root.querySelectorAll(".pick").forEach(b => b.onclick = () => { const p = byPid[b.dataset.pid]; if (p) { location.hash = "#oracle/" + encodeURIComponent(p.pid); window.scrollTo({ top: 0, behavior: "smooth" }); } }); }
 
+let curPid = null;
 function select(p, push) {
+  curPid = p.pid;
   if (push) history.replaceState(null, "", "#oracle/" + encodeURIComponent(p.pid));
   const res = evaluate(p);
   const alts = alternatives(p);
@@ -562,6 +567,119 @@ function renderModels() {
       <p class="note">The worth-it score combines these measured parts with transparent rules (every point is shown). "Worth it" has no ground truth, so no accuracy figure is claimed for it.</p></div>`;
 }
 
+
+/* ---------- live sync ----------
+ * The page is a build-time snapshot. /api/live (a Netlify Function) returns
+ * your latest Codeforces / LeetCode activity; anything newer than the build is
+ * applied on top: solved marks, rating, activity, streak, LeetCode stats.
+ * Skill estimates and readiness gates refresh on the next full rebuild, which
+ * the scheduled "autobuild" function triggers when it sees new activity. */
+const live = { at: null, err: null, seen: new Set(), newSolves: [], timer: null };
+const canLive = () => /^https?:$/.test(location.protocol) && !!(D.handle || D.lc_handle);
+const dayKey = t => { const d = new Date(t * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+function ago(ms) { const s = Math.round((Date.now() - ms) / 1000); return s < 10 ? "just now" : s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`; }
+
+function setLive(state) {
+  const b = $("live"), t = $("live-text");
+  b.dataset.state = state;
+  if (state === "snapshot") { t.textContent = "Snapshot"; b.title = `Built ${D.generated}. Live sync runs when the site is served by Netlify.`; }
+  else if (state === "syncing") { t.textContent = "Syncing"; b.title = "Fetching your latest activity"; }
+  else if (state === "ok") { t.textContent = `Live · ${ago(live.at)}`; b.title = `Synced ${ago(live.at)}. Click to sync now. Full rebuild: ${D.generated}.`; }
+  else { t.textContent = "Sync failed"; b.title = `${live.err || "error"}. Click to retry.`; }
+}
+
+function computeStreak() {
+  let n = 0; const d = new Date();
+  if (!D.daily[dayKey(d / 1000)]) d.setDate(d.getDate() - 1);  // today not started yet: streak still alive
+  while (D.daily[dayKey(d / 1000)] > 0) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+function markSolved(pid, t, name, plat) {
+  const p = byPid[pid];
+  if (p && p.status === "solved") return false;
+  if (p) p.status = "solved";
+  if (live.seen.has("solved:" + pid)) return false;
+  live.seen.add("solved:" + pid);
+  D.daily[dayKey(t)] = (D.daily[dayKey(t)] || 0) + 1;
+  me.total_solved++; if (Date.now() / 1000 - t <= 90 * 86400) me.solved90++;
+  live.newSolves.push({ pid, name: p ? p.name : name, plat, t });
+  return true;
+}
+
+function applyLive(data) {
+  const since = D.generated_at || 0, fresh = [];
+  const c = data.cf, l = data.lc, ss = D.sync_status || (D.sync_status = {});
+  let heroChanged = false;
+  if (c && !c.error) {
+    if (c.rating != null && c.rating !== me.cf_rating) { if (me.cf_rating != null) me.last_delta = c.rating - me.cf_rating; me.cf_rating = c.rating; heroChanged = true; }
+    if (c.max_rating != null && c.max_rating !== me.cf_max) { me.cf_max = c.max_rating; heroChanged = true; }
+    for (const s of [...c.submissions].sort((a, b) => a.t - b.t)) {
+      if (s.t <= since || live.seen.has("cf:" + s.id)) continue;
+      live.seen.add("cf:" + s.id);
+      const pid = `CF:${s.cid}${s.idx}`;
+      if (s.v === "OK") { if (markSolved(pid, s.t, s.name, "CF")) fresh.push(pid); }
+      else if (s.v && s.v !== "TESTING" && byPid[pid] && !byPid[pid].status) byPid[pid].status = "attempted";
+    }
+    ss["Codeforces (live)"] = { ok: true };
+  } else if (c) ss["Codeforces (live)"] = { ok: false, error: c.error };
+  if (l && !l.error) {
+    LC.profile = l.profile;
+    const lr = l.profile && l.profile.contest_rating;
+    if (lr != null && Math.round(lr) !== Math.round(me.lc_rating || 0)) { me.lc_rating = lr; heroChanged = true; }
+    for (const s of [...l.recent].sort((a, b) => a.t - b.t)) {
+      if (s.t <= since || live.seen.has("lc:" + s.id)) continue;
+      live.seen.add("lc:" + s.id);
+      const pid = "LC:" + s.slug;
+      if (markSolved(pid, s.t, s.title, "LC")) {
+        fresh.push(pid); LC.tracked++;
+        const p = byPid[pid];
+        LC.recent.unshift({ pid, time: s.t, name: s.title, rating: p ? p.rating : null, rating_source: p ? p.source : null });
+      }
+    }
+    ss["LeetCode (live)"] = { ok: true };
+    delete ss.LeetCode;  // the live result supersedes the build-time status
+  } else if (l) ss["LeetCode (live)"] = { ok: false, error: l.error };
+
+  if (fresh.length || heroChanged) {
+    me.streak = computeStreak();
+    renderHero(); renderPicks(); renderTrain(); drawCharts();
+    if (curPid && fresh.includes(curPid) && byPid[curPid]) select(byPid[curPid], false);
+  }
+  renderLeetCode(); renderFooter();
+  if (fresh.length) toast(fresh);
+}
+
+function toast(pids) {
+  const el = $("toast"), names = pids.slice(0, 4).map(pid => { const p = byPid[pid]; return esc(p ? (p.plat === "CF" ? p.id : p.name) : pid.slice(3)); });
+  el.innerHTML = `<b>✓ ${pids.length} new solve${pids.length === 1 ? "" : "s"} synced</b>${names.join(", ")}${pids.length > 4 ? " …" : ""}
+    <div class="sub">Marked solved and counted in your activity. Skill estimate and readiness refresh on the next rebuild.</div>`;
+  el.hidden = false; clearTimeout(live.toastT); live.toastT = setTimeout(() => { el.hidden = true; }, 9000);
+}
+
+async function liveSync() {
+  if (!canLive()) { setLive("snapshot"); return; }
+  setLive("syncing");
+  try {
+    const qs = new URLSearchParams();
+    if (D.handle) qs.set("cf", D.handle);
+    if (D.lc_handle) qs.set("lc", D.lc_handle);
+    const r = await fetch(`/api/live?${qs}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status === 404 ? "live function not deployed yet" : `HTTP ${r.status}`);
+    applyLive(await r.json());
+    live.at = Date.now(); live.err = null; setLive("ok");
+  } catch (e) { live.err = e.message; setLive("error"); }
+}
+
+function startLive() {
+  $("live").onclick = () => liveSync();
+  if (!canLive()) { setLive("snapshot"); return; }
+  liveSync();
+  setInterval(() => { if (document.visibilityState === "visible") liveSync(); }, 120000);
+  setInterval(() => { if (live.at && $("live").dataset.state === "ok") setLive("ok"); }, 15000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (!live.at || Date.now() - live.at > 60000)) liveSync(); });
+}
+
 /* ---------- boot ---------- */
-renderHero(); renderLeetCode(); renderPicks(); renderTrain(); renderModels(); route();
+renderHero(); renderLeetCode(); renderPicks(); renderTrain(); renderModels(); route(); startLive();
 })();

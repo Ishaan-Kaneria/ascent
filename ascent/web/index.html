@@ -24,6 +24,7 @@
       <a href="#topics" data-tab="topics" role="tab">Topics</a>
       <a href="#brain" data-tab="brain" role="tab">Brain</a>
     </nav>
+    <button class="live" id="live" type="button" data-state="snapshot" title="Sync now"><span class="dot"></span><span id="live-text">Snapshot</span></button>
     <button class="icon-btn" id="theme" aria-label="Toggle light and dark theme" title="Toggle theme">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
     </button>
@@ -103,6 +104,7 @@
 
 <footer class="site-foot"><span id="foot"></span></footer>
 <div id="tip" role="tooltip"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <script id="data" type="application/json">__DATA__</script>
 <script>/*__APP__*/</script>
 </body>

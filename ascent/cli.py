@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import analyzer, db, readiness, sheets, sync
 from .config import Config, db_path, home, journal_path
-from .dashboard import build_data, render
+from .dashboard import build_data, build_info, render
 from .recommend import recommend, recommend_lc, tag_needs
 from .sources.http import FetchError
 from .state import TAG_TIERS, load
@@ -378,8 +378,10 @@ def cmd_dashboard(a):
     st = load(conn, cfg)
     out = Path(a.output or home() / "dashboard.html")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(build_data(conn, st)), encoding="utf-8")
-    print(f"Wrote {out}")
+    data = build_data(conn, st)
+    out.write_text(render(data), encoding="utf-8")
+    (out.parent / "build-info.json").write_text(json.dumps(build_info(data)) + "\n", encoding="utf-8")
+    print(f"Wrote {out} (+ build-info.json)")
 
 
 def main(argv=None):

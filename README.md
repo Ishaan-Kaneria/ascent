@@ -275,10 +275,26 @@ own servers from your live Codeforces/LeetCode data:
    click **Deploy**.
 2. Set your handles in `netlify.toml` (`CF_HANDLE`, `LC_HANDLE`), or in
    Netlify under **Site configuration → Environment variables**.
-3. For a daily refresh: in Netlify, go to **Build & deploy → Build hooks**
-   and add a hook. Save its URL as the GitHub repository secret
-   `NETLIFY_BUILD_HOOK`, and `.github/workflows/netlify-refresh.yml` will
-   trigger it every day.
+3. Optional, for automatic full rebuilds: in Netlify, go to **Build & deploy → Build hooks**
+   and add a hook. Then, under **Site configuration → Environment variables**, add
+   `NETLIFY_BUILD_HOOK` with that URL.
+
+### Live sync, and keeping within Netlify's free credits
+Netlify's Free plan has 300 credits a month, and **each production deploy costs 15**.
+That's about 20 deploys a month. ascent is built so that being up to date doesn't need deploys:
+
+- **Live sync (no deploy).** The page calls `/api/live`, a Netlify Function in
+  `netlify/functions/live.mjs`, when it opens and every 2 minutes while it's open.
+  New solves get marked solved and counted in your activity and streak. Your
+  rating and your LeetCode stats update too. The **Live** pill in the top bar shows
+  when the last sync ran; click it to sync now. Responses are cached for 60 seconds.
+- **Rationed rebuilds.** `netlify/functions/autobuild.mjs` checks hourly. It
+  rebuilds only when there's new activity, and at most once every
+  `AUTOBUILD_MIN_HOURS` (default 72, so about 10 deploys a month). A rebuild is
+  what refreshes the slower-moving numbers: skill estimate, readiness gates and
+  trained models. If builds keep failing, it stops after a day without new activity.
+- **No deploy for docs-only pushes.** `netlify/ignore.sh` skips builds for pushes
+  that only touch docs, tests or CI.
 
 If the Codeforces API is down during a build, the build fails on purpose and
 Netlify keeps serving the last good dashboard.

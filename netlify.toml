@@ -4,6 +4,8 @@
 [build]
   command = "bash netlify/build.sh"
   publish = "site"
+  # Skip deploys for docs/tests-only pushes (each production deploy costs credits).
+  ignore = "bash netlify/ignore.sh"
 
 [build.environment]
   PYTHON_VERSION = "3.12"
@@ -12,6 +14,13 @@
   CF_HANDLE = "Ishaan-K"
   LC_HANDLE = "Ishaan-Kaneria"
   TARGET_RATING = "1600"
+
+# Live sync: /api/live lets the page show your latest activity without any
+# deploy. The scheduled "autobuild" rebuilds only when there is new activity,
+# at most every AUTOBUILD_MIN_HOURS (default 72) to save Free-plan credits.
+# For autobuild, add NETLIFY_BUILD_HOOK in Site configuration -> Environment variables.
+[functions]
+  directory = "netlify/functions"
 
 [[headers]]
   for = "/*"
