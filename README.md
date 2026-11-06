@@ -7,7 +7,7 @@ It only says you're ready when every evidence gate passes.
 
 Built for one goal: **Codeforces Expert (1600+) and passing quant / big-tech OAs.**
 
-**Live dashboard: [ascent-cp.netlify.app](https://ascent-cp.netlify.app/)** (rebuilt daily from real Codeforces/LeetCode data)
+**Live dashboard: [ascent-cp.netlify.app](https://ascent-cp.netlify.app/)** (refreshed about every 5 minutes from real Codeforces/LeetCode data)
 
 ```
 $ ascent readiness
@@ -279,36 +279,37 @@ own servers from your live Codeforces/LeetCode data:
    and add a hook. Then, under **Site configuration → Environment variables**, add
    `NETLIFY_BUILD_HOOK` with that URL.
 
-### Live sync, and keeping within Netlify's free credits
+### Staying current without spending Netlify credits
 Netlify's Free plan has 300 credits a month, and **each production deploy costs 15**.
-That's about 20 deploys a month. ascent is built so that being up to date doesn't need deploys:
+That's about 20 deploys a month. So ascent keeps itself current **without Netlify deploys**:
 
-- **Live sync (no deploy).** The page calls `/api/live`, a Netlify Function in
-  `netlify/functions/live.mjs`, when it opens and every 2 minutes while it's open.
-  New solves get marked solved and counted in your activity and streak. Your
-  rating and your LeetCode stats update too. The **Live** pill in the top bar shows
-  when the last sync ran; click it to sync now. Responses are cached for 60 seconds.
-- **Rationed rebuilds.** `netlify/functions/autobuild.mjs` checks hourly. It
-  rebuilds only when there's new activity, and at most once every
-  `AUTOBUILD_MIN_HOURS` (default 72, so about 10 deploys a month). A rebuild is
-  what refreshes the slower-moving numbers: skill estimate, readiness gates and
-  trained models. If builds keep failing, it stops after a day without new activity.
-- **No deploy for docs-only pushes.** `netlify/ignore.sh` skips builds for pushes
-  that only touch docs, tests or CI.
+| What | How often | Netlify deploys used |
+|---|---|---|
+| **Full refresh**: sync, skill model, readiness gates, recommendations (`.github/workflows/sync.yml` on GitHub Actions) | about every 5 min | 0 |
+| **Instant solved marks**: `/api/live` function (`netlify/functions/live.mjs`) | every 2 min while the page is open | 0 |
+| Optional rationed rebuild: `netlify/functions/autobuild.mjs` (needs `NETLIFY_BUILD_HOOK`) | at most every 72 h | about 10 a month |
+| Pushes that only touch docs, tests or CI (`netlify/ignore.sh`) | n/a | 0 |
 
-If the Codeforces API is down during a build, the build fails on purpose and
-Netlify keeps serving the last good dashboard.
+**Full refresh.** A GitHub Actions job runs about every 5 minutes. Actions
+minutes are free for public repos. Each run:
+1. restores the previous run's database from the Actions cache;
+2. syncs incrementally;
+3. publishes to **GitHub Pages** (free) only if `ascent fingerprint` changed.
 
-## Automatic daily dashboard (GitHub Actions + Pages)
+The Netlify page checks Pages for a newer `data.json` every 5 minutes. When it
+finds one, it reloads quietly. If you're typing or have pasted a statement, it
+offers a **Refresh now** button instead. The **Live** pill in the top bar shows
+how fresh the data is.
 
-1. Fork or clone this repo.
-2. In **Settings → Secrets and variables → Actions → Variables**, add
-   `CF_HANDLE` (and optionally `LC_HANDLE`, `TARGET_RATING`).
-3. In **Settings → Pages**, set the source to **GitHub Actions**.
+**One-time setup:** on GitHub, go to **Settings → Pages → Source** and pick
+**GitHub Actions**. Handles come from `netlify.toml`.
 
-`.github/workflows/daily.yml` then syncs every day, commits your journal to
-`data/`, and publishes the dashboard to GitHub Pages. In a public repo, your
-journal and dashboard are public too (your Codeforces history already is).
+GitHub runs scheduled workflows on a best-effort basis. Under load, the
+5-minute schedule can run late or skip a slot; the `/api/live` check covers
+the gaps.
+
+The same dashboard is also served on GitHub Pages
+(`https://<owner>.github.io/<repo>/`).
 
 ## Honest limitations
 

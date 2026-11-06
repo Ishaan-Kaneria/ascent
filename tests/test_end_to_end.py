@@ -122,3 +122,23 @@ def test_reviews_and_dashboard(home, fake_cf):
     assert "<script>" in page and "</script>" in page
     assert json.loads(json.dumps(data))["verdict"].startswith("NOT READY")
     assert len(data["reviews"]) >= 1
+
+
+def test_dashboard_writes_data_json_and_fingerprint_tracks_changes(home, fake_cf, capsys):
+    from ascent.cli import main
+    easy_history(fake_cf)
+    setup(home, fake_cf)
+    main(["dashboard", "-o", str(home / "site" / "index.html")])
+    data = json.loads((home / "site" / "data.json").read_text())
+    info = json.loads((home / "site" / "build-info.json").read_text())
+    assert data["generated_at"] == info["generated_at"] and data["handle"] == info["handle"] == "test_user"
+    assert len(data["cf"]) > 1000
+    capsys.readouterr()
+    main(["fingerprint"]); a = capsys.readouterr().out.strip()
+    main(["fingerprint"]); b = capsys.readouterr().out.strip()
+    assert a == b and len(a) == 16
+    conn = db.connect()
+    conn.execute("INSERT INTO submissions VALUES ('CF:1', 'CF', 'CF:1600A', 1, 'OK', 'PRACTICE', NULL, NULL)")
+    conn.commit()
+    main(["fingerprint"]); c = capsys.readouterr().out.strip()
+    assert c != a

@@ -220,6 +220,7 @@ th{border-top:0;color:var(--muted);font-weight:600;font-size:12px}
 .live:hover{border-color:var(--border-2);color:var(--ink)}
 .live .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .live[data-state="ok"] .dot{background:var(--good);box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 60%,transparent);animation:pulse 2.4s infinite}
+.live[data-state="auto"] .dot{background:var(--good)}
 .live[data-state="syncing"] .dot{background:var(--a1);animation:blink .8s infinite alternate}
 .live[data-state="error"] .dot{background:var(--crit)}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}

@@ -381,7 +381,26 @@ def cmd_dashboard(a):
     data = build_data(conn, st)
     out.write_text(render(data), encoding="utf-8")
     (out.parent / "build-info.json").write_text(json.dumps(build_info(data)) + "\n", encoding="utf-8")
-    print(f"Wrote {out} (+ build-info.json)")
+    (out.parent / "data.json").write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+    print(f"Wrote {out} (+ build-info.json, data.json)")
+
+
+def cmd_fingerprint(a):
+    """Prints a hash of everything that changes what the dashboard shows. CI uses
+    it to skip publishing when nothing is new."""
+    import hashlib
+    cfg, conn = _ctx()
+    q = lambda sql: conn.execute(sql).fetchone()[0]
+    parts = [
+        q("SELECT COUNT(*) FROM submissions"), q("SELECT MAX(time) FROM submissions"),
+        q("SELECT COUNT(*) || ':' || COALESCE(MAX(new_rating), 0) FROM rating_history"),
+        q("SELECT COUNT(*) FROM attempts"), q("SELECT COUNT(*) FROM sheets"),
+        db.get_meta(conn, "lc_profile", ""), db.get_meta(conn, "catalog_at", ""),
+        db.get_meta(conn, "zerotrac_at", ""), db.get_meta(conn, "sync_status", ""),
+        cfg.cf_handle, cfg.lc_handle, cfg.target_rating,
+        time.strftime("%Y-%m-%d"),  # at least one refresh a day (streaks, recency weights)
+    ]
+    print(hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:16])
 
 
 def main(argv=None):
@@ -452,6 +471,8 @@ def main(argv=None):
 
     s = sub.add_parser("dashboard", help="write the HTML dashboard")
     s.add_argument("-o", "--output"); s.set_defaults(f=cmd_dashboard)
+
+    sub.add_parser("fingerprint", help="hash of the synced data (CI uses it to skip unchanged publishes)").set_defaults(f=cmd_fingerprint)
 
     a = p.parse_args(argv)
     if a.cmd == "sheet" and a.action in ("import", "progress", "next") and not a.name:

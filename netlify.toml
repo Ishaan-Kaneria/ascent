@@ -14,6 +14,8 @@
   CF_HANDLE = "Ishaan-K"
   LC_HANDLE = "Ishaan-Kaneria"
   TARGET_RATING = "1600"
+  # Fresh data published every ~5 min by .github/workflows/sync.yml (free, no Netlify deploys).
+  ASCENT_LIVE_DATA_URL = "https://ishaan-kaneria.github.io/ascent/data.json"
 
 # Live sync: /api/live lets the page show your latest activity without any
 # deploy. The scheduled "autobuild" rebuilds only when there is new activity,

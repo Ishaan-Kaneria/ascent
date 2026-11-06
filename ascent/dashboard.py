@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from collections import Counter
 from importlib import resources
@@ -110,6 +111,9 @@ def build_data(conn, st: State, *, train_personal: bool = True) -> dict:
     return {
         "generated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "generated_at": int(time.time()),
+        # Where the page looks for fresher data between deploys (GitHub Pages, refreshed every
+        # ~5 minutes by .github/workflows/sync.yml). Empty = no auto-refresh.
+        "live_data_url": os.environ.get("ASCENT_LIVE_DATA_URL", ""),
         "handle": st.cfg.cf_handle, "lc_handle": st.cfg.lc_handle, "target": target,
         "min_contest_id": st.cfg.min_contest_id,
         "me": {"cf_rating": st.cf_rating, "cf_max": st.cf_max, "lc_rating": st.lc_rating,

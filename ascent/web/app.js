@@ -1,6 +1,19 @@
 (function () {
 "use strict";
-const D = JSON.parse(document.getElementById("data").textContent);
+// Data baked in at build time, unless a fresher copy was fetched from GitHub Pages
+// (see "fresh data" below) and stashed for this tab before a reload.
+const D = (() => {
+  const embedded = JSON.parse(document.getElementById("data").textContent);
+  try {
+    const f = sessionStorage.getItem("ascent-fresh");
+    if (f) {
+      const x = JSON.parse(f);
+      if (x.generated_at > embedded.generated_at && x.handle === embedded.handle) return x;
+      sessionStorage.removeItem("ascent-fresh");
+    }
+  } catch (e) { /* storage unavailable: use the embedded data */ }
+  return embedded;
+})();
 const me = D.me;
 Brain.init(D.brain);
 
@@ -584,7 +597,8 @@ function setLive(state) {
   b.dataset.state = state;
   if (state === "snapshot") { t.textContent = "Snapshot"; b.title = `Built ${D.generated}. Live sync runs when the site is served by Netlify.`; }
   else if (state === "syncing") { t.textContent = "Syncing"; b.title = "Fetching your latest activity"; }
-  else if (state === "ok") { t.textContent = `Live · ${ago(live.at)}`; b.title = `Synced ${ago(live.at)}. Click to sync now. Full rebuild: ${D.generated}.`; }
+  else if (state === "ok") { t.textContent = `Live · ${ago(live.at)}`; b.title = `New solves checked ${ago(live.at)} (click to check now). Full stats computed ${ago(D.generated_at * 1000)}.`; }
+  else if (state === "auto") { t.textContent = `Updated ${ago(D.generated_at * 1000)}`; b.title = `Full stats computed ${ago(D.generated_at * 1000)}; refreshed automatically about every 5 minutes. Click to check now.`; }
   else { t.textContent = "Sync failed"; b.title = `${live.err || "error"}. Click to retry.`; }
 }
 
@@ -665,19 +679,66 @@ async function liveSync() {
     if (D.handle) qs.set("cf", D.handle);
     if (D.lc_handle) qs.set("lc", D.lc_handle);
     const r = await fetch(`/api/live?${qs}`, { cache: "no-store" });
+    if (r.status === 404 && D.live_data_url) { live.noApi = true; freshCheck(); setLive("auto"); return; }  // e.g. on GitHub Pages
     if (!r.ok) throw new Error(r.status === 404 ? "live function not deployed yet" : `HTTP ${r.status}`);
     applyLive(await r.json());
     live.at = Date.now(); live.err = null; setLive("ok");
   } catch (e) { live.err = e.message; setLive("error"); }
 }
 
+/* ---------- fresh data ----------
+ * .github/workflows/sync.yml recomputes everything (skill, gates, models,
+ * recommendations) about every 5 minutes and publishes data.json to GitHub
+ * Pages for free. If it is newer than what this page was built with, stash it
+ * and reload at a quiet moment, so no Netlify deploy is ever needed. */
+const fresh = { checking: false, ready: false, lastInteract: Date.now() };
+["pointerdown", "keydown", "wheel", "touchstart"].forEach(ev => addEventListener(ev, () => { fresh.lastInteract = Date.now(); }, { passive: true }));
+function quietMoment() {
+  const a = document.activeElement, stmt = $("stmt");
+  const busy = (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) || (stmt && stmt.value);
+  return document.hidden || (!busy && Date.now() - fresh.lastInteract > 30000);
+}
+function offerRefresh() {
+  const el = $("toast");
+  el.innerHTML = `<b>Fresh stats are ready</b><div class="sub">Skill estimate, readiness and picks were recomputed with your latest activity.</div>
+    <button class="btn" id="fresh-go" style="margin-top:8px">Refresh now</button>`;
+  el.hidden = false; clearTimeout(live.toastT);
+  $("fresh-go").onclick = () => location.reload();
+}
+async function freshCheck() {
+  if (!D.live_data_url || !/^https?:$/.test(location.protocol) || fresh.checking) return;
+  if (fresh.ready) { if (quietMoment()) location.reload(); return; }
+  fresh.checking = true;
+  try {
+    const bust = () => `?t=${Date.now()}`;  // GitHub Pages caches for ~10 min; a new query string skips it
+    const info = await (await fetch(D.live_data_url.replace(/data\.json$/, "build-info.json") + bust(), { cache: "no-store" })).json();
+    if (!(info.generated_at > D.generated_at) || info.handle !== D.handle) return;
+    const text = await (await fetch(D.live_data_url + bust(), { cache: "no-store" })).text();
+    const x = JSON.parse(text);
+    if (!(x.generated_at > D.generated_at) || x.handle !== D.handle) return;
+    sessionStorage.setItem("ascent-fresh", text);
+    fresh.ready = true;
+    if (quietMoment()) location.reload(); else offerRefresh();
+  } catch (e) {
+    /* GitHub Pages not set up yet, offline, or storage full: keep the current data */
+  } finally { fresh.checking = false; }
+}
+
 function startLive() {
-  $("live").onclick = () => liveSync();
+  $("live").onclick = () => { liveSync(); freshCheck(); };
   if (!canLive()) { setLive("snapshot"); return; }
   liveSync();
-  setInterval(() => { if (document.visibilityState === "visible") liveSync(); }, 120000);
-  setInterval(() => { if (live.at && $("live").dataset.state === "ok") setLive("ok"); }, 15000);
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (!live.at || Date.now() - live.at > 60000)) liveSync(); });
+  setTimeout(freshCheck, 4000);
+  setInterval(() => { if (document.visibilityState === "visible" && !live.noApi) liveSync(); }, 120000);
+  setInterval(() => { if (document.visibilityState === "visible" || fresh.ready) freshCheck(); }, 5 * 60000);
+  setInterval(() => { const st = $("live").dataset.state; if (st === "ok" || st === "auto") setLive(st); }, 15000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && fresh.ready) { location.reload(); return; }
+    if (document.visibilityState === "visible") {
+      if (!live.noApi && (!live.at || Date.now() - live.at > 60000)) liveSync();
+      freshCheck();
+    }
+  });
 }
 
 /* ---------- boot ---------- */

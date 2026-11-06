@@ -1,0 +1,100 @@
+# Live sync, about every 5 minutes, for free: GitHub Actions minutes are free
+# for public repositories and GitHub Pages deploys cost nothing, unlike Netlify
+# deploys. Each run syncs incrementally (the database is cached between runs),
+# and only publishes when something changed. The Netlify page picks up the new
+# data.json from GitHub Pages without being redeployed.
+#
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+# Handles and target are read from netlify.toml ([build.environment]).
+# Note: GitHub runs scheduled workflows on a best-effort basis; under load a
+# "every 5 minutes" schedule can run late or skip a slot.
+name: live-sync
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["ascent/**", "netlify.toml", ".github/workflows/sync.yml"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: live-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.fp.outputs.changed }}
+    env:
+      ASCENT_HOME: ${{ github.workspace }}/.ascent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install .
+      - name: Restore synced database from the previous run
+        uses: actions/cache/restore@v4
+        with:
+          path: .ascent
+          key: ascent-db-${{ github.run_id }}
+          restore-keys: ascent-db-
+      - name: Read handles from netlify.toml
+        run: |
+          python3 - >> "$GITHUB_ENV" <<'PY'
+          import tomllib
+          env = tomllib.load(open("netlify.toml", "rb")).get("build", {}).get("environment", {})
+          for k in ("CF_HANDLE", "LC_HANDLE", "TARGET_RATING"):
+              print(f"{k}={env.get(k, '')}")
+          PY
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "ASCENT_LIVE_DATA_URL=https://${owner}.github.io/${GITHUB_REPOSITORY#*/}/data.json" >> "$GITHUB_ENV"
+      - name: Sync (incremental)
+        run: |
+          if [ -z "$CF_HANDLE" ]; then echo "CF_HANDLE is empty in netlify.toml"; exit 1; fi
+          mkdir -p "$ASCENT_HOME"
+          ascent init --cf "$CF_HANDLE" --lc "$LC_HANDLE" --target "${TARGET_RATING:-1600}"
+          ascent sync --strict
+      - name: Anything new?
+        id: fp
+        run: |
+          new="$(ascent fingerprint)"
+          old="$(cat "$ASCENT_HOME/fingerprint" 2>/dev/null || true)"
+          if [ "$new" != "$old" ] || [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "$new" > "$ASCENT_HOME/fingerprint"
+            echo "New data ($old -> $new): publishing"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "Nothing new: skipping publish"
+          fi
+      - name: Build dashboard
+        if: steps.fp.outputs.changed == 'true'
+        run: ascent dashboard -o site/index.html
+      - name: Save synced database for the next run
+        if: steps.fp.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ascent
+          key: ascent-db-${{ github.run_id }}
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.fp.outputs.changed == 'true'
+        with:
+          path: site
+
+  deploy:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
