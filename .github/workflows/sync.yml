@@ -63,20 +63,29 @@ jobs:
           mkdir -p "$ASCENT_HOME"
           ascent init --cf "$CF_HANDLE" --lc "$LC_HANDLE" --target "${TARGET_RATING:-1600}"
           ascent sync --strict
-      - name: Anything new?
+      - name: Anything new compared with what is live on Pages?
         id: fp
         run: |
           new="$(ascent fingerprint)"
-          old="$(cat "$ASCENT_HOME/fingerprint" 2>/dev/null || true)"
-          if [ "$new" != "$old" ] || [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "$new" > "$ASCENT_HOME/fingerprint"
-            echo "New data ($old -> $new): publishing"
+          echo "fingerprint=$new" >> "$GITHUB_OUTPUT"
+          # Compare with the published copy (not a local note), so a failed deploy is retried next run.
+          live="$(curl -fsS "${ASCENT_LIVE_DATA_URL%data.json}build-info.json?t=$(date +%s)" 2>/dev/null \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("fingerprint",""))' 2>/dev/null || true)"
+          if [ "$new" != "$live" ] || [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "New data (${live:-nothing published} -> $new): publishing"
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "Nothing new: skipping publish"
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "Nothing new since the published $live: skipping"
           fi
       - name: Build dashboard
         if: steps.fp.outputs.changed == 'true'
-        run: ascent dashboard -o site/index.html
+        run: |
+          ascent dashboard -o site/index.html
+          python3 - <<'PY'
+          import json
+          p = "site/build-info.json"; d = json.load(open(p))
+          d["fingerprint"] = "${{ steps.fp.outputs.fingerprint }}"
+          json.dump(d, open(p, "w"))
+          PY
       - name: Save synced database for the next run
         if: steps.fp.outputs.changed == 'true'
         uses: actions/cache/save@v4
